@@ -30,5 +30,65 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+
+  // `include` above is "**/*.ts(x)" — every TypeScript file in the repo, not
+  // just the ones the app imports. `next build` type checks that whole set and
+  // fails the build on any error, so a file nothing imports can still stop a
+  // deployment. It did: the build failed with 54 errors, and none of them were
+  // in code that runs.
+  //
+  // Excluding a file does NOT hide it if something imports it — TypeScript still
+  // pulls in any module reachable from an included file. So nothing below can
+  // mask a real error in shipping code; each entry was checked to have no
+  // importer outside its own group.
+  "exclude": [
+    "node_modules",
+
+    // The VS Code extension is a separate product with its own tsconfig,
+    // its own node_modules and its own build. It is in this repo for
+    // convenience. Type checking it with the web app's settings is meaningless
+    // and it resolves `vscode` types from its own tree, not this one.
+    "vscode-extension",
+
+    // Point-in-time copies kept by hand next to the files they shadow
+    // (page_backup.tsx, route_backup.ts, db_backup.ts, ...). They are snapshots
+    // of older versions, so they fail against the current helper signatures by
+    // definition — that is what makes them snapshots. Kept on disk deliberately;
+    // simply not compiled.
+    //
+    // These patterns are deliberately narrow so they do not catch the real
+    // backups FEATURE: src/app/api/backups/** and src/components/BackupsPanel.tsx
+    // are live code and stay in the build.
+    "**/*_backup.ts",
+    "**/*_backup.tsx",
+    "**/backup_*.ts",
+    "**/backup_*.tsx",
+    "**/*_claude.ts",
+    "**/*_claude.tsx",
+    "src/app/smart-backup-page.tsx",
+    "src/app/api/omniroute/debug/reout)backup.ts",
+    ".omniroute-backups",
+
+    // Production Agent Mode, which is parked — see the note in
+    // src/app/api/production-agent/route.ts. These seven files import only each
+    // other; nothing in the shipping app reaches them, which is why the feature
+    // could be parked by tombstoning one route. Together they accounted for 31
+    // of the 54 build errors, all of them the unfinished-feature kind: methods
+    // called on VSCodeBridgeManager that do not exist, imports of names that
+    // were renamed. They stay on disk because reviving the mode means finishing
+    // them, not rewriting them from nothing.
+    "src/lib/productionAgent.ts",
+    "src/lib/productionToolRegistry.ts",
+    "src/lib/reactStateMachine.ts",
+    "src/lib/webContainerManager.ts",
+    "src/lib/advancedReActAgent.ts",
+    "src/lib/phaseManager.ts",
+    "src/components/PhaseManager.tsx",
+
+    // Imports `pdfjs-dist`, which is neither installed nor listed in
+    // package.json — so this module could never have run. PDF text extraction
+    // that actually works happens in the browser, via the pdf.js build loaded
+    // from cdnjs in src/app/page.tsx. Nothing imports this file.
+    "src/lib/pdf-ingest.ts"
+  ]
 }

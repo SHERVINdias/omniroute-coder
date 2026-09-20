@@ -1,0 +1,149 @@
+# ---------------------------------------------------------------------------
+# Build context exclusions.
+# ---------------------------------------------------------------------------
+# This file is not an optimisation — it is what keeps secrets and gigabytes out
+# of the build. Two entries below are load-bearing:
+#
+#   .env / .env.local   Docker sends the whole context to the daemon, and
+#                       `COPY . .` puts every file in a layer. Anything matched
+#                       here never enters an image, so a stray .env cannot leak
+#                       into a layer that gets pushed to a registry.
+#   node_modules        ~400 MB on a Windows host. The image builds its own
+#                       copy inside Linux; the host's is incompatible (native
+#                       binaries for the wrong platform) and would silently
+#                       overwrite the correct one on `COPY . .`.
+# ---------------------------------------------------------------------------
+
+# Secrets — never in an image
+.env
+.env.*
+!.env.production.example
+*.pem
+*.key
+
+# providers.json is a LIVE CREDENTIAL FILE, not a config template.
+#
+# It is the legacy single-user provider store, and the copy in this working
+# directory holds three real, unencrypted API keys (an OmniRoute gateway key, an
+# APINeX key and a Google key). `.env*` above does not match it, so before this
+# line it was copied into the build context and baked into the image by
+# `COPY . .` — where `docker history` and a `docker save | tar -x` would both
+# hand it to anyone who could pull the image.
+#
+# Nothing in the image needs it. `importLegacyProvidersFor()` reads it once, per
+# user, to carry a pre-existing local setup into the per-user `user_providers`
+# table; on a fresh server there is nothing to carry over, and a server that did
+# import it would give every account the operator's own keys.
+providers.json
+
+# Same class of mistake with a different name. The settings panel writes this
+# file, so it exists on any machine the app has run on, and `.env.*` does not
+# match a name that does not START with `.env`.
+user_local.env
+*.env
+!.env.production.example
+
+# Local database and its write-ahead log. This is the live data file; it must
+# never be baked into an image, and including it would make every build
+# non-deterministic.
+chat.db
+chat.db-wal
+chat.db-shm
+*.sqlite
+*.sqlite3
+
+# The timestamped copies the in-app backup path leaves behind. These are named
+# `chat.db.backup-1789485009526`, which neither `chat.db` nor the `*backup_*.*`
+# pattern further down matches — five of them, 10 MB each, were being uploaded
+# to the Docker daemon and written into a layer on every single build.
+chat.db.backup-*
+chat.db.*
+
+# Runtime state for the Deep Cowork context layer, including workspace.json,
+# which records an absolute path on the developer's own machine. Regenerated on
+# demand; meaningless (and misleading) inside a container.
+.omniroute
+.agent
+
+# Windows launchers, one-off repair scripts and schema dumps. Developer tooling
+# that the server never executes, and `fix-agentrouter-config.sql` embeds
+# provider configuration that should not travel.
+*.bat
+check-schema.js
+run-fix.js
+fix-*.js
+fix-*.sql
+activate-*.js
+
+# Dependencies and build output — rebuilt inside the image
+node_modules
+**/node_modules
+.next
+out
+build
+dist
+*.tsbuildinfo
+
+# (The database, its WAL and its timestamped copies are excluded up in the
+# secrets block, alongside providers.json — they are the same class of problem:
+# live data that must not enter a layer.)
+
+# Documents the app generated for users at runtime. `public/` is copied into the
+# final image wholesale, so without this every PDF exported during local testing
+# ships inside the image — and `public/` is served publicly, meaning one user's
+# document would be downloadable by anyone who guessed the filename. Runtime
+# output does not belong in a build artefact. Safe to exclude: pdf-generator.ts
+# recreates the directory with mkdirSync(recursive) before writing.
+public/generated-pdfs
+
+# The path the LIVE route actually writes to. `public/generated-pdfs` above is
+# used by src/lib/pdf-generator.ts; src/app/api/chat/generate-document/route.ts
+# — the one page.tsx calls — writes to <cwd>/generated-documents instead, which
+# was not excluded. Same reasoning applies: runtime output, one directory shared
+# by every account, and no reason for a single byte of it to enter an image
+# layer. The route calls fs.mkdir(recursive) before writing, so excluding it
+# cannot break a cold start.
+generated-documents
+
+# Backups the app writes, and the manual backups kept alongside source files.
+#
+# The `**/` prefixes matter. A .dockerignore pattern is matched against the path
+# relative to the ROOT of the build context and `*` does not cross a `/`, so the
+# bare `*_backup.*` form below only ever matched a file sitting next to this
+# one. Every real copy is nested — `src/lib/omniroute_backup.ts`,
+# `src/app/api/chat/route_backup.ts` and six more inside src/app/api — so none
+# of them was actually being excluded, and all of them were being uploaded to
+# the daemon and baked into a layer by `COPY . .`. That is ~3,000 lines of
+# superseded handler code, including copies from before the routes were
+# guarded, sitting inside a distributable image.
+#
+# Kept narrow for the same reason as in .gitignore: `**/*backup*` would also
+# swallow src/components/BackupsPanel.tsx, which is live code, and the build
+# would fail on a missing import rather than warn.
+.omniroute-backups
+*_backup.*
+*backup_*.*
+**/*_backup.*
+**/*backup_*.*
+**/backup_*.*
+**/smart-backup*
+src/app/api/omniroute/debug/reout)backup.ts
+
+# Version control and editor state
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+
+# Docs and dev tooling that the server never reads
+README.md
+*.md
+eslint.config.mjs
+.vscode-extension
+vscode-extension
+
+# Logs
+*.log
+npm-debug.log*

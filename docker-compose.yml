@@ -1,0 +1,263 @@
+# ---------------------------------------------------------------------------
+# omniroute-coder — single-container deployment
+# ---------------------------------------------------------------------------
+# One service, one volume. There is no database container because there is no
+# separate database server: the app is SQLite, which is a file. That is a real
+# constraint and not an oversight — it means this deployment is single-instance
+# by design. Two containers pointed at the same SQLite file over a network
+# filesystem corrupt it; two pointed at different files are two separate
+# products. Scale up (a bigger VPS) rather than out.
+#
+# USAGE
+#   cp .env.production.example .env.production   # then fill it in
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# PUT A TLS TERMINATOR IN FRONT OF THIS.
+# The session cookie is issued with `secure: NODE_ENV === "production"`, so the
+# browser will only send it back over HTTPS. Publishing port 3005 directly to
+# the internet gives you a site where sign-in silently does not stick. Caddy,
+# nginx, or a Cloudflare Tunnel must sit in front and terminate TLS.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: omniroute-coder:latest
+
+    # `unless-stopped` rather than `always`: the container comes back after a
+    # reboot or crash, but stays down when deliberately stopped, so
+    # `docker compose stop` during maintenance actually means stopped.
+    restart: unless-stopped
+
+    # Secrets live in a file that is never committed (see .gitignore: `.env*`).
+    # Keep it out of `environment:` — values written there are visible to anyone
+    # who can run `docker inspect`.
+    env_file:
+      - .env.production
+
+    environment:
+      NODE_ENV: production
+      PORT: "3005"
+      HOSTNAME: "0.0.0.0"
+
+      # Absolute path INSIDE the container, on the volume mounted below. Set
+      # here rather than in the env file because it is a property of this
+      # layout, not of the deployment's secrets — a mismatched value writes the
+      # database into the image layer, where it is lost on the next build.
+      OMNIROUTE_DB_PATH: /data/chat.db
+
+      # The interface the VS Code bridge listener binds, and likewise a property
+      # of this layout rather than a choice.
+      #
+      # The default is 127.0.0.1, which is correct on a laptop and silently
+      # wrong in a container: loopback inside a container is the CONTAINER's
+      # loopback, so the published port below would reach nothing at all.
+      # Docker would report a healthy service that refuses every connection, and
+      # the extension would show "connection refused" with no indication that the
+      # bind address was the problem.
+      #
+      # Binding 0.0.0.0 sounds alarming and is not, for two reasons that hold
+      # together: the port is published to the HOST's loopback only (see `ports`),
+      # so nothing outside this machine can dial it directly, and every upgrade
+      # must now present a pairing token that maps to one account. The bind
+      # address stopped being the authorisation model when the token check landed
+      # — which is precisely why those two changes had to ship together.
+      OMNIROUTE_BRIDGE_HOST: "0.0.0.0"
+
+      # Tells the app it is containerized, so the gateway setup wizard gives
+      # advice that works.
+      #
+      # This is only a hint about *wording* — it grants nothing. The wizard has
+      # to answer "what address means the machine the user is sitting at", and
+      # the answer differs here: a container's `localhost` is its own, so a user
+      # running the OmniRoute gateway on their laptop is not reachable at
+      # localhost:20128 from in here even though the browser, served from
+      # 127.0.0.1:3005, makes it look like the same machine. Without this the
+      # wizard told those users to flip OMNIROUTE_ALLOW_PRIVATE_GATEWAY and stop
+      # — which removes a refusal that explains itself and leaves a bare
+      # connection error in its place.
+      #
+      # Detection in src/lib/runtimeEnvironment.ts would find /.dockerenv on its
+      # own; this is set so correct instructions never depend on that working.
+      OMNIROUTE_IN_CONTAINER: "true"
+
+      # NOTE: OMNIROUTE_BRIDGE_ENABLE is deliberately NOT set here. A production
+      # build refuses to open the bridge listener without it, and that refusal is
+      # the last thing standing between "a filesystem RPC port exists" and "a
+      # filesystem RPC port exists and nobody decided it should". Opting in
+      # belongs in .env.production, where it is a decision someone made, rather
+      # than here, where it would be a default someone inherited.
+
+      # NOTE: OMNIROUTE_TRUST_PROXY is deliberately NOT set here. It is read
+      # from .env.production instead, because its correct value depends on how
+      # this instance is exposed: true behind a proxy or tunnel that rewrites
+      # x-forwarded-for, false if port 3005 is ever reachable directly. Setting
+      # it here would silently override the choice made in the env file, and
+      # `environment:` wins over `env_file:`.
+
+      # NOTE: OMNIROUTE_ENABLE_FILE_TOOLS is deliberately NOT set here either,
+      # and it used to be — pinned to "false" with a comment explaining that the
+      # file tools would otherwise read the server's own disk.
+      #
+      # That is no longer what they do. Every file operation is routed to the
+      # calling user's own editor over the bridge, and in a production build
+      # there is no fallback to this machine's filesystem: the call reaches that
+      # person's VS Code or it fails. So the honest default is now "on when the
+      # bridge is on", which is what src/lib/fileToolsGate.ts works out for
+      # itself.
+      #
+      # Pinning it here would also have been a trap: `environment:` beats
+      # `env_file:`, so an operator who enabled the bridge and set
+      # OMNIROUTE_ENABLE_FILE_TOOLS=true in .env.production would have watched it
+      # be silently ignored, and spent the afternoon debugging a working
+      # deployment.
+
+      # Note: this one is compared against the literal "1", not "true"
+      # (src/lib/vscodeBridge.ts), so any other value leaves it off. It is also
+      # inert in a production build — "let the model read outside the workspace
+      # root" is not a statement this process is in a position to make about
+      # somebody else's laptop — but it is set explicitly so that a single-user
+      # deployment cannot pick it up from a stray shell export.
+      OMNIROUTE_ALLOW_OUTSIDE_ROOT: "false"
+
+      # V8 heap ceiling, in MiB. Sized against `mem_limit` below, not against
+      # the machine.
+      #
+      # This has to be stated explicitly because Node cannot work it out for
+      # itself in a container: V8 picks its default heap size from
+      # /proc/meminfo, which reports the HOST's memory regardless of what the
+      # container is actually allowed to use. On a 2 GiB box that is merely
+      # optimistic; the process grows past the cgroup limit and the kernel OOM-
+      # kills it, which from the outside looks like the app restarting at random
+      # under load rather than like a memory setting.
+      #
+      # 896 of 1600 MiB leaves room for the things the heap does not cover:
+      # native allocations in better-sqlite3, the SQLite page cache, socket
+      # buffers for streaming responses, and the standalone server itself.
+      # Raise both this and mem_limit together on a larger instance — the boot
+      # check prints the resolved pair on every start.
+      NODE_OPTIONS: "--max-old-space-size=896"
+
+    # Hard memory ceiling for the container.
+    #
+    # The point is not to save memory; it is to make the failure land here,
+    # predictably, instead of on the host. Without a limit a runaway request
+    # takes the whole instance down with it — including sshd, which is how a
+    # small box becomes unreachable and needs a forced reboot from the console.
+    # With one, the container alone is killed and `restart: unless-stopped`
+    # brings it back.
+    #
+    # 1600 MiB of a 2 GiB t4g.small leaves ~400 MiB for the kernel, Caddy and
+    # sshd. Readable from inside the container at /sys/fs/cgroup/memory.max, so
+    # the boot check reports the real figure rather than the host's.
+    mem_limit: 1600m
+
+    # Time allowed between SIGTERM and SIGKILL on `docker compose down`.
+    #
+    # The default is 10s. Two things need to happen in that window: Next drains
+    # in-flight requests, and the SIGTERM handler in src/lib/db.ts checkpoints
+    # the write-ahead log back into chat.db. The checkpoint itself is fast —
+    # better-sqlite3 is synchronous, so it completes inside the handler — but a
+    # long-running model stream can hold the drain open, and a SIGKILL partway
+    # through leaves the WAL uncheckpointed. That is recoverable (SQLite replays
+    # it on next open) right up until someone copies chat.db on its own for a
+    # backup and leaves chat.db-wal behind.
+    stop_grace_period: 30s
+
+    # Blocks setuid binaries inside the container from acquiring privileges the
+    # container was not started with. The app runs as an unprivileged user and
+    # has no reason to escalate, so this costs nothing and removes a step from
+    # the usual container-escape chain.
+    security_opt:
+      - no-new-privileges:true
+
+    volumes:
+      # A NAMED volume, not a bind mount, and the distinction is not cosmetic.
+      #
+      # On first creation Docker copies the permissions of the image's /data
+      # into the new volume, so the directory stays owned by the unprivileged
+      # `node` user (uid 1000) that the Dockerfile chowned it to, and SQLite can
+      # write. A bind mount would instead expose the host directory with the
+      # host's ownership, and the container would start and then fail on its
+      # first write with SQLITE_CANTOPEN — a confusing failure, well away from
+      # its cause.
+      #
+      # To back up, use SQLite's online backup API — the image ships the sqlite3
+      # CLI for this:
+      #
+      #   docker compose exec -T app sqlite3 /data/chat.db ".backup '/data/b.db'"
+      #   docker compose cp app:/data/b.db ./backup-$(date +%F).db
+      #   docker compose exec -T app rm -f /data/b.db
+      #
+      # Do NOT `cp /data/chat.db` while the server is running. WAL mode keeps
+      # recent commits in chat.db-wal until a checkpoint folds them in, so a
+      # plain copy opens cleanly and is silently missing everything written since
+      # the last checkpoint. Stopping the container first is also safe — the
+      # SIGTERM handler in src/lib/db.ts checkpoints on the way down — but it
+      # costs downtime for no extra safety. See AWS_DEPLOYMENT_CHECKLIST.md §6.1.
+      - omniroute-data:/data
+
+    # Makes "the machine running Docker" addressable from inside the container.
+    #
+    # Docker Desktop on Windows and macOS provides host.docker.internal
+    # automatically; a Linux host does not, and without this line the name does
+    # not resolve at all. That matters for exactly one feature — someone running
+    # this stack locally while their OmniRoute gateway runs on the host — and its
+    # absence looks like a DNS failure rather than a missing compose directive.
+    #
+    # Harmless on a server: it only names an address that was always reachable,
+    # and reaching it still requires OMNIROUTE_ALLOW_PRIVATE_GATEWAY, which must
+    # stay off on any deployment where users can save their own provider URLs.
+    # Resolving a name is not permission to fetch it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      # Bound to loopback ON THE HOST on purpose: the only intended route in is
+      # the TLS terminator running on the same machine. Publishing "3005:3005"
+      # would instead expose plaintext HTTP to the whole internet, where the
+      # secure session cookie is never sent back. Change this only if a separate
+      # proxy host must reach it, and firewall that port to the proxy's address.
+      - "127.0.0.1:3005:3005"
+
+      # The VS Code bridge, published the same way and for the same reason.
+      #
+      # Caddy proxies wss://<host>/vscode-bridge to this port, so testers reach
+      # it over 443 along with everything else — no second firewall rule, no
+      # second certificate, and no high port for a cafe or office network to
+      # block outbound. Publishing "20129:20129" instead would put an
+      # unencrypted filesystem RPC port on the public internet; the token check
+      # would still hold, but the traffic — including file contents — would be
+      # in the clear, and the port would be there to be scanned.
+      #
+      # Comment this line out to switch the bridge off at the network layer
+      # without touching the app's configuration. Also unset
+      # OMNIROUTE_BRIDGE_ENABLE if you want the listener itself not to bind.
+      - "127.0.0.1:20129:20129"
+
+    # The image's own HEALTHCHECK is inherited; restated here so the timing is
+    # visible in one place. start-period covers schema migration on a cold,
+    # empty volume.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3005/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    # Log rotation. Without this, JSON logs grow until the disk is full — a slow
+    # failure that nobody notices until the app cannot write its own database.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  omniroute-data:

@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+# The leading slash above anchors to the repo root, so it does NOT cover
+# vscode-extension/node_modules — 20 MB of vendored TypeScript that a
+# `git add -A` would otherwise commit. .dockerignore already says
+# `**/node_modules`; this makes git agree.
+**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,6 +37,83 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template, which contains no values and documents the setup.
+!.env.production.example
+
+# Legacy provider store.
+#
+# providers.json holds API keys in PLAINTEXT. It predates the encrypted
+# per-user credential store and is only read once, by importLegacyProvidersFor,
+# to migrate old installs. It was untracked but not ignored, so a single
+# `git add .` would have published live keys. Never commit it.
+providers.json
+
+# The same mistake wearing a different name.
+#
+# user_local.env is written by the settings panel and holds a live
+# OMNIROUTE_API_KEY. The `.env*` rule above does NOT match it: that pattern
+# anchors on a name that STARTS with `.env`, and this one starts with `user`.
+# So the file sat here tracked-by-nothing but ignored-by-nothing, and the first
+# `git add -A` before pushing to a deploy remote would have published the key.
+# (.dockerignore already excluded it, which is why it never reached an image.)
+user_local.env
+*.env
+!.env.production.example
+
+# Local database and its WAL sidecars. Contains user accounts, sessions,
+# encrypted credentials and chat history.
+chat.db
+chat.db-shm
+chat.db-wal
+chat.db.backup-*
+*.sqlite
+*.sqlite3
+
+# Local agent state and the app's own rolling backups.
+/.agent/
+/.omniroute-backups/
+
+# Rendered PDFs and Word documents, written at runtime by
+# src/app/api/chat/generate-document/route.ts. These are other people's
+# documents: the directory is shared by every account and the filenames are the
+# document titles. `.dockerignore` now excludes it too.
+/generated-documents/
+/public/generated-pdfs/
+
+# Deep Cowork's context layer: 121 files of task notes, journals and a
+# workspace.json recording an absolute path on this machine. `.dockerignore`
+# already excluded it; this makes git agree. It is regenerated on demand, it is
+# meaningless on another machine, and the task filenames alone are a transcript
+# of what was being debugged.
+/.omniroute/
+
+# SSH keys for the deployment box.
+*.pem
+*.ppk
+
+# Manual backup copies kept beside the source files.
+#
+# There are 19 of these, and eight sit INSIDE src/app/api — pre-hardening
+# copies of the chat, models, chats, pdf and omniroute/debug handlers. None of
+# them contains a key (checked), and none of them can serve traffic: Next.js
+# only routes a file named exactly `route.ts`, and tsconfig.json already
+# excludes every one of these names from type-checking, so the build does not
+# see them either. What they are is a published map of the old handlers, back
+# when several of them had no guard at all — the thing an attacker reads first.
+# They were tracked by nothing and ignored by nothing, so the first `git add -A`
+# would have committed all 19.
+#
+# The patterns are written narrowly on purpose. A tempting `*backup*` would also
+# match `src/components/BackupsPanel.tsx`, which is LIVE code for the in-app
+# backup UI, and silently drop it from the next commit. Every pattern below
+# therefore requires the underscore or hyphen that only the copies have.
+*_backup.*
+*backup_*.*
+backup_*.*
+smart-backup*
+# One file is misspelled with a bracket instead of an `e`, so no pattern above
+# reaches it. tsconfig.json excludes it by this same literal path.
+src/app/api/omniroute/debug/reout)backup.ts
 
 # vercel
 .vercel

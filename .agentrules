@@ -1,0 +1,31 @@
+{
+  "company_rules": {
+    "framework": "Next.js App Router",
+    "styling": "Tailwind CSS only",
+    "typescript": "Strict mode, no explicit 'any'",
+    "logging": "Use internal Logger service, never console.log in production",
+    "dependencies": {
+      "allowed": [
+        "react", "next", "typescript", "tailwindcss", "lucide-react",
+        "@anthropic-ai/sdk", "better-sqlite3", "bcryptjs", "jsonwebtoken"
+      ],
+      "forbidden": [
+        "lodash", "moment", "axios"
+      ]
+    }
+  },
+  "security_level": "strict",
+  "master_locks": [
+    "SEC_LEAK_01",
+    "AUTH_PLAINTEXT_PWD", 
+    "PROD_DEBUG_ENDPOINTS",
+    "UNHASHED_PASSWORDS"
+  ],
+  "audit_domains": {
+    "secret_leak_prevention": true,
+    "personal_data_flow": true,
+    "production_readiness": true,
+    "auth_logic_audit": true,
+    "security_review": true
+  }
+}

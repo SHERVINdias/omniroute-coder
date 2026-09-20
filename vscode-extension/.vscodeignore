@@ -1,0 +1,41 @@
+# vscode-extension/.vscodeignore
+# ---------------------------------------------------------------------------
+# What NOT to put inside the .vsix that gets sent to beta testers over WhatsApp,
+# LinkedIn and email.
+#
+# There was no .vscodeignore before this file, and `vsce package` without one
+# ships almost the whole folder: the TypeScript sources, the source maps, the
+# tsconfig, and — the part that matters — `src/extension_backup.ts` and
+# `src/fileOps_backup.ts`, superseded drafts that are kept on disk for reference
+# and are not what the extension runs. A .vsix is an ordinary zip file; anyone
+# who receives one can read every file in it. Shipping abandoned drafts of the
+# file-access code to strangers is a poor way to introduce a security feature.
+#
+# Everything the extension needs at runtime is `out/*.js` plus package.json, so
+# the rule is: exclude sources, keep compiled output, and exclude the compiled
+# copies of the drafts too — `tsconfig.json` no longer compiles them, but stale
+# `out/*_backup.js` from an earlier build can still be sitting there.
+
+# TypeScript sources and build configuration
+src/**
+tsconfig.json
+.vscode-test/**
+**/*.ts
+!out/**/*.d.ts
+
+# Source maps: useful locally, 40% of the package, and a complete reconstruction
+# of the sources this file exists to withhold.
+out/**/*.js.map
+
+# Compiled copies of the superseded drafts, in case an older build left them.
+out/**/*_backup.js
+out/**/*_claude.js
+out/**/*_backup.js.map
+out/**/*_claude.js.map
+
+# Build metadata and previous packages
+**/.gitignore
+**/.eslintrc.json
+package-lock.json
+*.vsix
+node_modules/.bin/**

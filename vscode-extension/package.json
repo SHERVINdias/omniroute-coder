@@ -1,0 +1,82 @@
+{
+  "name": "omniroute-vscode",
+  "displayName": "OmniRoute AI Bridge",
+  "description": "Connects your local workspace context to OmniRoute AI gateway.",
+  "version": "0.4.0",
+  "publisher": "omniroute",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onUri"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "omniroute.signIn",
+        "title": "OmniRoute: Connect (paste pairing code)"
+      },
+      {
+        "command": "omniroute.signOut",
+        "title": "OmniRoute: Sign Out"
+      },
+      {
+        "command": "omniroute.connect",
+        "title": "OmniRoute: Connect"
+      },
+      {
+        "command": "omniroute.disconnect",
+        "title": "OmniRoute: Disconnect"
+      },
+      {
+        "command": "omniroute.approveFolder",
+        "title": "OmniRoute: Approve a Folder for File Access"
+      },
+      {
+        "command": "omniroute.manageFolders",
+        "title": "OmniRoute: Manage Folder Access"
+      },
+      {
+        "command": "omniroute.showMenu",
+        "title": "OmniRoute: Show Menu"
+      }
+    ],
+    "configuration": {
+      "title": "OmniRoute",
+      "properties": {
+        "omniroute.serverUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDeprecationMessage": "Deprecated. The bridge address now travels inside the pairing code you paste (it starts with `omr_link_`), and is stored securely rather than in settings. Run **OmniRoute: Connect (paste pairing code)** instead. If a value is set here it is only read once, to migrate an old setup, and then cleared.",
+          "description": "Deprecated — superseded by the pairing code."
+        },
+        "omniroute.pairingToken": {
+          "type": "string",
+          "default": "",
+          "markdownDeprecationMessage": "Deprecated for security. A pairing code placed here is synced across machines by Settings Sync and can be committed to a repo via `.vscode/settings.json`. It is now stored in the OS keychain instead. Any value found here is moved into secure storage and then removed automatically on the next launch. Use **OmniRoute: Connect (paste pairing code)**.",
+          "description": "Deprecated — pasted via the Connect command and stored securely."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

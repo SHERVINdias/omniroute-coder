@@ -1,26 +1,397 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+ * Design tokens
+ * ---------------------------------------------------------------------------
+ * WHY THESE EXIST
+ *
+ * The UI was built from raw Tailwind palette classes — `bg-zinc-900`,
+ * `border-zinc-800`, `text-amber-400` — chosen per component. That works until
+ * you need two components to agree. By the time this was written the header
+ * alone carried four competing accents (violet for the plan badge, rose for
+ * admin, emerald for sign-in, amber for everything else), each announcing
+ * itself as loudly as the others, so nothing on the screen read as primary.
+ *
+ * These tokens fix the *vocabulary*, not the components. A surface is named for
+ * its depth rather than its grey value, so raising a panel is a rename instead
+ * of a hunt for every place `zinc-900` happened to mean "one step up".
+ *
+ * MIGRATION IS DELIBERATELY INCREMENTAL
+ *
+ * Every existing `zinc-*` and `amber-*` class keeps working — these are
+ * additions to the theme, not replacements for it. page.tsx alone is ~4000
+ * lines; a single sweeping find-and-replace across it is exactly the kind of
+ * change that silently drops a declaration and turns into a runtime error
+ * nobody sees until the page is open. Surfaces move over one at a time.
+ *
+ * THE ONE-ACCENT RULE
+ *
+ * Amber is the accent. It marks the primary action in a view and the thing the
+ * eye should land on first. Everything else is a neutral surface. Status colours
+ * exist for state that is genuinely about success or failure, and they are
+ * deliberately desaturated so they read as information rather than as a second
+ * brand.
+ * ------------------------------------------------------------------------- */
+
+@theme {
+  /* Surfaces, ordered by elevation. Near-black rather than pure black so that
+   * borders and shadows have something to sit against — #000 gives shadows
+   * nowhere to go and makes every edge a hard line. */
+  --color-surface-base: #08080a;
+  --color-surface-sunken: #050506;
+  --color-surface-raised: #0e0e11;
+  --color-surface-overlay: #141418;
+  --color-surface-hover: #1b1b20;
+  --color-surface-active: #232329;
+
+  /* Hairlines. Expressed as translucent white so they hold up over any surface
+   * above, instead of only matching the one they were sampled against. */
+  --color-line-faint: rgba(255, 255, 255, 0.05);
+  --color-line: rgba(255, 255, 255, 0.09);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text, brightest first. Four steps is enough to build a hierarchy and few
+   * enough that each one has an obvious job. */
+  --color-ink-hi: #f4f4f5;
+  --color-ink: #d4d4d8;
+  --color-ink-mid: #a1a1aa;
+  --color-ink-low: #71717a;
+  --color-ink-faint: #52525b;
+
+  /* The accent. One hue, used sparingly. */
+  --color-accent: #f5a524;
+  --color-accent-hi: #fbbf24;
+  --color-accent-ink: #fcd34d;
+  --color-accent-soft: rgba(245, 165, 36, 0.12);
+  --color-accent-line: rgba(245, 165, 36, 0.3);
+
+  /* Status. Muted on purpose: a success chip that glows as hard as the primary
+   * action steals attention from it. */
+  --color-positive: #56b98a;
+  --color-positive-soft: rgba(86, 185, 138, 0.12);
+  --color-positive-line: rgba(86, 185, 138, 0.28);
+  --color-danger: #d9616d;
+  --color-danger-soft: rgba(217, 97, 109, 0.12);
+  --color-danger-line: rgba(217, 97, 109, 0.28);
+  --color-info: #6b8fd9;
+  --color-info-soft: rgba(107, 143, 217, 0.12);
+  --color-info-line: rgba(107, 143, 217, 0.28);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-serif: var(--font-display-serif), Georgia, "Times New Roman", serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: var(--color-surface-base);
+  --foreground: var(--color-ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* The app is dark-only: every surface, border and text colour in it is chosen
+ * for a dark background. The previous `prefers-color-scheme` block set a light
+ * background for anyone whose OS asked for light mode, which did not produce a
+ * light theme — it produced white behind a UI that assumed black, visible as a
+ * flash before hydration and permanently anywhere a component had no background
+ * of its own. */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Was `Arial, Helvetica, sans-serif`, which overrode the Geist font that
+   * layout.tsx goes to the trouble of loading — the entire app rendered in
+   * Arial while the font variables sat unused on <html>. */
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbars, so panels do not switch between a 17px light-grey system bar and
+ * the dark UI around them. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-active) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-surface-active);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #2f2f37;
+}
+
+/* One focus treatment for the whole app. `:focus-visible` rather than `:focus`
+ * so it appears for keyboard users without ringing every button a mouse
+ * touches — removing outlines outright is the usual "fix" for that, and it
+ * leaves the app unusable without a pointer. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Assistant reply typography
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS
+ *
+ * Replies are markdown, rendered by react-markdown into ordinary `h2`, `p`,
+ * `ul` and `table` elements — and Tailwind's preflight resets all of them. A
+ * heading came out at body size and body weight, `ul` lost its markers and its
+ * indent (`list-style: none; padding: 0`), and paragraphs lost their margins.
+ * So a well-structured answer with three sections and two lists arrived on
+ * screen as one undifferentiated block of text. That is the "messy" in "the
+ * chat is messy": the model was emitting structure the page was throwing away.
+ *
+ * WHY PLAIN CSS AND NOT `prose`
+ *
+ * `@tailwindcss/typography` is in package.json but was never loaded, and in
+ * Tailwind v4 it needs an explicit `@plugin` line. Loading it would work, but
+ * its defaults then have to be fought: `max-width: 65ch` on a pane that is
+ * already width-constrained, its own grey scale instead of our ink tokens, and
+ * a `prose-invert` variant to undo the light-mode assumption. Thirty lines of
+ * CSS that names our own tokens is less machinery and easier to reason about.
+ *
+ * Selectors are flat descendants rather than nested, so nothing here depends on
+ * the CSS nesting support of whatever processes this file.
+ * ------------------------------------------------------------------------- */
+
+.md-body {
+  color: var(--color-ink);
+  font-size: 0.875rem;
+  /* Generous, because these are paragraphs to be read rather than UI labels to
+   * be scanned. */
+  line-height: 1.7;
+}
+
+/* The block already sits in a spaced container; its own first and last margins
+ * would double that up. */
+.md-body > :first-child {
+  margin-top: 0;
+}
+
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+
+.md-body p {
+  margin: 0 0 0.85em;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  color: var(--color-ink-hi);
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.6em 0 0.6em;
+}
+
+.md-body h1 {
+  font-size: 1.3rem;
+  letter-spacing: -0.01em;
+}
+
+.md-body h2 {
+  font-size: 1.125rem;
+  letter-spacing: -0.005em;
+  /* A hairline above each section is what makes a long answer skimmable — it
+   * gives the eye somewhere to stop. Deliberately faint: it is a fold in the
+   * page, not a divider between panels. */
+  border-top: 1px solid var(--color-line-faint);
+  padding-top: 1.1em;
+}
+
+/* …but not when the heading opens the message, where there is nothing above to
+ * separate it from. */
+.md-body > h2:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.md-body h3 {
+  font-size: 1rem;
+}
+
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  font-size: 0.875rem;
+  color: var(--color-ink);
+}
+
+.md-body ul,
+.md-body ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.35em;
+}
+
+.md-body ul {
+  list-style: disc;
+}
+
+.md-body ol {
+  list-style: decimal;
+}
+
+.md-body ul ul {
+  list-style: circle;
+}
+
+.md-body li {
+  margin: 0.3em 0;
+}
+
+.md-body li > ul,
+.md-body li > ol {
+  margin: 0.3em 0 0;
+}
+
+/* The bullet itself is punctuation, not content. */
+.md-body li::marker {
+  color: var(--color-ink-faint);
+}
+
+/* A list is nearly always the continuation of the line that introduces it
+ * ("...three things:"), so it should read as attached to that line rather than
+ * as the next thing after it. */
+.md-body p + ul,
+.md-body p + ol {
+  margin-top: -0.4em;
+}
+
+.md-body strong,
+.md-body b {
+  color: var(--color-ink-hi);
+  font-weight: 600;
+}
+
+.md-body a {
+  color: var(--color-accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--color-accent-line);
+}
+
+.md-body a:hover {
+  color: var(--color-accent-hi);
+  text-decoration-color: currentColor;
+}
+
+.md-body blockquote {
+  margin: 0 0 0.85em;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--color-line-strong);
+  color: var(--color-ink-mid);
+}
+
+.md-body hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--color-line-faint);
+}
+
+.md-body pre {
+  margin: 0 0 0.85em;
+}
+
+/* `display: block` on a table is unusual and intentional: it is what lets a
+ * wide table scroll inside the message instead of stretching the whole
+ * transcript and putting a horizontal scrollbar on the page. */
+.md-body table {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 0.85em;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.md-body th,
+.md-body td {
+  padding: 0.4em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-body th {
+  color: var(--color-ink-hi);
+  font-weight: 600;
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.md-body td {
+  border-top: 1px solid var(--color-line-faint);
+}
+
+.md-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.75rem;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-rise {
+  animation: fade-rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Respect the OS setting. Several surfaces here pulse or drift continuously,
+ * which is a genuine accessibility problem for vestibular disorders and a
+ * plain annoyance on a long session. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

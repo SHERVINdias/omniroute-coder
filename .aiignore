@@ -1,0 +1,45 @@
+# Environment & Secret Configurations
+.env*
+*.pem
+*.key
+*.p12
+*.pfx
+config/private_keys.json
+secrets/
+credentials/
+
+# Database & Sensitive Data
+*.db
+*.sqlite
+*.sqlite3
+chat.db*
+backup-*
+
+# Proprietary Source Code
+src/services/pricing/margin_matrix.ts
+src/core/secret_algorithm/
+proprietary/
+
+# Build & Cache
+node_modules/
+.next/
+dist/
+build/
+*.log
+
+# IDE & System Files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# AI Model & Training Data
+models/
+training_data/
+*.h5
+*.pkl
+
+# Temporary Files
+tmp/
+temp/
+*.tmp

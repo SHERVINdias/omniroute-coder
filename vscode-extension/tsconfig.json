@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2022",
+    "outDir": "out",
+    "rootDir": "src",
+    "lib": ["ES2022", "DOM"],
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "exclude": [
+    "node_modules",
+    ".vscode-test",
+
+    // Superseded drafts kept on disk for reference. They were still being
+    // compiled — `src/**/*` matches them — and `extension_backup.ts` has not
+    // type-checked since `readFile` started returning an object rather than a
+    // string, so `npm run compile` failed on code nothing imports. Excluding
+    // them also keeps dead source out of the .vsix.
+    "src/**/*_backup.ts",
+    "src/**/*_claude.ts"
+  ],
+  "include": ["src/**/*"]
+}
