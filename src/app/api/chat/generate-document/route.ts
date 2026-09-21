@@ -23,6 +23,7 @@ import crypto from "crypto";
 import { renderPdf } from "@/lib/documentRender";
 import { requireUser } from "@/lib/authGuard";
 import { rateLimit, formatRetryAfter } from "@/lib/rateLimit";
+import { stateRoot } from "@/lib/stateRoot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +36,12 @@ export const dynamic = "force-dynamic";
  */
 const RENDER_LIMIT = { limit: 20, windowMs: 60_000 } as const;
 
-/** Rendered files live outside `public/` so nothing is served by accident. */
-const OUTPUT_DIR = path.join(process.cwd(), "generated-documents");
+/** Rendered files live outside `public/` so nothing is served by accident, and
+ *  under the writable state root so a packaged desktop app writes somewhere it
+ *  is actually allowed to (see stateRoot). OMNIROUTE_STATE_DIR is exported by
+ *  the desktop main process before the server spawns, so it is populated by the
+ *  time this module evaluates. */
+const OUTPUT_DIR = path.join(stateRoot(), "generated-documents");
 
 /** Delete rendered files older than this on each new render. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

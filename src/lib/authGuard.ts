@@ -31,6 +31,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { validateSession, isAdmin, type AuthUser } from "./emailAuth";
+import { cachedVerdict } from "./licence";
 
 /**
  * Re-exported so a route can take its whole authorization surface from this one
@@ -75,12 +76,49 @@ export function currentUser(request: NextRequest): AuthUser | null {
 }
 
 /**
+ * Options for requireUser.
+ *
+ * `skipEntitlement` exists for the handful of routes that must run BEFORE the
+ * desktop licence is settled: the licence refresh route (which writes the cache
+ * the entitlement check reads — gating it would be a deadlock), and the auth
+ * routes (sign-in must work so an install can be activated in the first place).
+ */
+export interface RequireUserOptions {
+  skipEntitlement?: boolean;
+}
+
+/**
+ * The cached-verdict reasons that block a request on the desktop build.
+ *
+ * `never-activated` and (transient) states are deliberately NOT blocked here:
+ * a freshly signed-in user has no cached blob yet, and blocking them before the
+ * first refresh completes would lock them out of the very routes that trigger
+ * the refresh. Enforcement bites once a hard-negative verdict has been cached —
+ * revoked, expired, past grace, or a tampered signature. Off the desktop build
+ * cachedVerdict() always allows, so this is a no-op on servers and in dev.
+ */
+const ENTITLEMENT_BLOCKING = new Set([
+  "revoked",
+  "expired",
+  "grace-expired",
+  "no-signature",
+]);
+
+/**
  * Require any signed-in user.
  *
  * Returns a discriminated result rather than throwing, so route handlers stay
  * linear: `const auth = requireUser(req); if (!auth.ok) return auth.response;`
+ *
+ * On the desktop build this also enforces the licence: a revoked, expired, or
+ * past-grace install is refused with 403 even though its session is valid, so a
+ * revocation bites within one request for an already-running session. The coarse
+ * launch-time check in desktop/main.js is the other half.
  */
-export function requireUser(request: NextRequest): GuardResult {
+export function requireUser(
+  request: NextRequest,
+  options: RequireUserOptions = {},
+): GuardResult {
   const user = currentUser(request);
   if (!user) {
     return {
@@ -91,6 +129,24 @@ export function requireUser(request: NextRequest): GuardResult {
       ),
     };
   }
+
+  if (!options.skipEntitlement) {
+    const verdict = cachedVerdict();
+    if (!verdict.allowed && ENTITLEMENT_BLOCKING.has(verdict.reason)) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error: verdict.detail,
+            code: "LICENCE_BLOCKED",
+            reason: verdict.reason,
+          },
+          { status: 403 },
+        ),
+      };
+    }
+  }
+
   return { ok: true, user };
 }
 

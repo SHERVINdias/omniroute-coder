@@ -1,0 +1,75 @@
+# desktop/electron-builder.yml
+# ---------------------------------------------------------------------------
+# Windows-only NSIS build for the OmniRoute Coder beta.
+#
+# KEY CHOICES
+#   asar: false        The app spawns payload/.next/standalone/server.js by path
+#                      and loads better-sqlite3's native .node from disk. Both
+#                      must be real files, so the app is not packed into an asar
+#                      archive. Larger and source-readable — fine for 10 testers.
+#   unsigned           No code-signing certificate for the beta. Testers will see
+#                      SmartScreen's "Windows protected your PC"; the install
+#                      instructions document the "More info -> Run anyway" path.
+#   per-user install   NSIS installs to %LOCALAPPDATA%\Programs so it needs no
+#                      admin rights. Note that the app's DATA lives in a separate
+#                      %LOCALAPPDATA%\OmniRouteCoder folder (set in main.js), NOT
+#                      in the install dir, so the updater replacing the install
+#                      dir never touches chat.db or the secrets.
+#   updater            Generic provider pointing at the licence server, NOT
+#                      GitHub Releases — the feed is gated to licensed users by an
+#                      authenticating proxy in front of latest.yml + the installer.
+
+appId: com.omniroute.coder
+productName: OmniRoute Coder
+copyright: OmniRoute
+
+asar: false
+
+directories:
+  output: dist
+  buildResources: build
+
+# The payload/ tree is assembled by prepare.mjs before this runs. Everything the
+# app needs at runtime is under desktop/, so the file set is simply "this folder"
+# minus the build tooling and the output.
+files:
+  - "main.js"
+  - "server-wrapper.js"
+  - "ports.js"
+  - "secrets.js"
+  - "licence.js"
+  - "preload.js"
+  - "payload/**/*"
+  - "!dist/**/*"
+  - "!prepare.mjs"
+  - "!electron-builder.yml"
+  # Belt-and-braces: even if one slipped into the payload, never package a
+  # database or a secret. prepare.mjs already asserts this and fails the build;
+  # these globs are the second line.
+  - "!**/chat.db"
+  - "!**/chat.db-*"
+  - "!**/chat.db.backup-*"
+  - "!**/.env"
+  - "!**/.env.*"
+  - "!**/providers.json"
+  - "!**/user_local.env"
+
+win:
+  target:
+    - nsis
+  # No certificateFile / no signing for the beta.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Do NOT delete user data on uninstall by default. The app's data is in
+  # %LOCALAPPDATA%\OmniRouteCoder, outside the install dir, so a normal uninstall
+  # leaves conversations intact; a reinstall finds them again.
+  deleteAppDataOnUninstall: false
+
+# Gated update feed on the licence server (see the header). electron-updater
+# reads app-update.yml built from this at package time.
+publish:
+  - provider: generic
+    url: "https://licence.example.com/updates/win"

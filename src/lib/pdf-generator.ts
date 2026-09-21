@@ -3,6 +3,8 @@ import { marked } from "marked";
 import fs from "fs";
 import path from "path";
 
+import { browserLaunchOptions } from "@/lib/browserLaunch";
+
 export interface PdfGenerationResult {
   pdfUrl: string;
   fileName: string;
@@ -50,10 +52,7 @@ export async function generatePdfFromMarkdown(
     </html>
   `;
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await puppeteer.launch(browserLaunchOptions());
 
   try {
     const page = await browser.newPage();

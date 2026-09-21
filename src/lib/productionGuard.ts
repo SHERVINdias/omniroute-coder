@@ -67,6 +67,7 @@ import {
   listBetaTesters,
 } from "./otpDelivery";
 import { isAutoApproveEnabled } from "./appSettings";
+import { isDesktopBuild } from "./deploymentMode";
 import { fileToolsEnabled } from "./fileToolsGate";
 import { ipLimitsAreShared } from "./rateLimit";
 import { listBootstrapAdmins } from "./emailAuth";
@@ -386,8 +387,20 @@ export function evaluateProductionSafety(): GuardReport {
    * What remains is a way to get it wrong that produces no danger and no
    * working product: tools switched on with no bridge to carry them, so every
    * call fails with "connect VS Code" and the button is there anyway. That is a
-   * warning, because it is a mistake rather than a hazard. */
-  if (fileToolsEnabled() && !envFlag("OMNIROUTE_BRIDGE_ENABLE")) {
+   * warning, because it is a mistake rather than a hazard.
+   *
+   * DESKTOP IS THE EXCEPTION. On the packaged desktop build the tools do NOT
+   * need the bridge: isMultiTenantBridge() is false there, so file operations
+   * fall back to the local disk — which is the user's own machine — exactly as
+   * they do on a laptop dev run. The bridge is an optional live-diffs
+   * enhancement, not a carrier the tools depend on. So this warning would be
+   * actively false on desktop ("every file operation will fail"), and we skip
+   * it. */
+  if (
+    !isDesktopBuild() &&
+    fileToolsEnabled() &&
+    !envFlag("OMNIROUTE_BRIDGE_ENABLE")
+  ) {
     warnings.push(
       "File tools are enabled but OMNIROUTE_BRIDGE_ENABLE is not set, so there is no editor " +
         "bridge for them to reach. The Cowork UI will be offered and every file operation will " +

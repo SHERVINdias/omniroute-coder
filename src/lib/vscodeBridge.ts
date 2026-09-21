@@ -47,6 +47,7 @@ import {
   referencePromptBlock,
 } from "@/lib/referenceProjectStore";
 import { isMultiTenantBridge, isBridgeEnabled } from "@/lib/deploymentMode";
+import { stateRoot } from "@/lib/stateRoot";
 /* One spelling of the proxied path, shared with the endpoint the UI hands out
  * and with the Caddyfile. A mismatch here produces a connection that is
  * refused with 404 rather than one that silently half-works. */
@@ -229,14 +230,23 @@ const NOT_CONNECTED_MESSAGE =
 export const BACKUP_DIR = ".omniroute-backups";
 
 /**
- * Where the UI-selected workspace override is persisted. Deliberately lives
- * next to the Next app itself (process.cwd() of the *server*, which never
- * changes) rather than inside whatever project is currently active — the
- * active project can be repointed at any time from the WorkspaceSelector, so
- * its own directory is not a stable place to remember the choice.
+ * Where the UI-selected workspace override is persisted. Deliberately lives in
+ * the writable state root (process.cwd() of the *server*, which never changes,
+ * or the desktop app's userData folder) rather than inside whatever project is
+ * currently active — the active project can be repointed at any time from the
+ * WorkspaceSelector, so its own directory is not a stable place to remember the
+ * choice. See stateRoot() for why cwd is wrong on a packaged desktop build.
+ *
+ * A function, not a const: stateRoot() reads process.env at call time, and this
+ * module is imported for its side effects (it opens the bridge listener), so
+ * evaluating the path at import time could read the environment too early.
  */
-const CONFIG_DIR = path.join(process.cwd(), ".omniroute");
-const CONFIG_FILE = path.join(CONFIG_DIR, "workspace.json");
+function configDir(): string {
+  return path.join(stateRoot(), ".omniroute");
+}
+function configFile(): string {
+  return path.join(configDir(), "workspace.json");
+}
 
 export interface DiscoveredProject {
   name: string;
@@ -2024,6 +2034,7 @@ class VSCodeBridgeManager {
     if (this.overrideLoaded) return;
     this.overrideLoaded = true;
     try {
+      const CONFIG_FILE = configFile();
       if (!fs.existsSync(CONFIG_FILE)) return;
       const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
@@ -2048,9 +2059,9 @@ class VSCodeBridgeManager {
 
   private persistOverride(root: string | null): void {
     try {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      fs.mkdirSync(configDir(), { recursive: true });
       fs.writeFileSync(
-        CONFIG_FILE,
+        configFile(),
         JSON.stringify(
           { activeWorkspace: root, updatedAt: new Date().toISOString() },
           null,

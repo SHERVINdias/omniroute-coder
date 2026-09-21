@@ -31,12 +31,58 @@
  */
 
 /**
+ * True when this process is the packaged Windows desktop app.
+ *
+ * WHY TWO FACTORS AND NOT ONE ENV VAR
+ *
+ * A desktop build is an optimised (NODE_ENV=production) build that nonetheless
+ * runs on one person's private disk — the first case where "is this a
+ * production build" and "does this serve more than one person" come apart. The
+ * obvious signal, a lone OMNIROUTE_DESKTOP=true, is the same trust level as the
+ * overrides below: fine on a laptop, dangerous if a .env file, a
+ * `docker --env-file`, or a copied systemd unit carried it onto a public
+ * server, where it would silently hand every signed-in stranger access to the
+ * operator's disk. Requiring the process to genuinely be running on Electron's
+ * binary (process.versions.electron is only defined there) makes that mistake
+ * impossible to make by editing configuration.
+ *
+ * THE .trim() IS NOT DECORATION
+ *
+ * This variable is written by a Windows installer, so it is exactly the shape
+ * that produced the CRLF strict-equality trap that killed the bridge on AWS: a
+ * trailing \r makes "true\r" !== "true". Trim before comparing.
+ */
+export function isDesktopBuild(): boolean {
+  if (process.env.OMNIROUTE_DESKTOP?.trim() !== "true") return false;
+  return typeof process.versions.electron === "string";
+}
+
+/** The three deployment kinds, named so callers can branch on intent. */
+export type DeploymentKind = "development" | "desktop" | "server";
+
+/**
+ * What kind of deployment this is, decided once so nobody re-derives it from
+ * NODE_ENV and gets the desktop case wrong. Desktop is checked before the
+ * production/development split because a desktop build is a production build.
+ */
+export function deploymentKind(): DeploymentKind {
+  if (isDesktopBuild()) return "desktop";
+  return process.env.NODE_ENV === "production" ? "server" : "development";
+}
+
+/**
  * True when the file tools must refuse to touch this machine's own disk.
  *
  *   false (a laptop)  The Next server and VS Code are the same machine and the
  *                     same person. Reading a file directly is a convenience
  *                     that costs nothing, because the disk belongs to the
  *                     person asking.
+ *
+ *   false (desktop)   The packaged app IS a production build, but it runs on
+ *                     one person's own machine — the disk belongs to the person
+ *                     asking, exactly as on a laptop. Without this branch the
+ *                     app refuses itself local file access and shows the
+ *                     read-only "Working folder" chip meant for shared hosts.
  *
  *   true  (a server)  The disk is the OPERATOR's, shared by every account. The
  *                     same convenience would let any signed-in user read
@@ -45,12 +91,14 @@
  *                     AI politely. So in this mode a file operation reaches the
  *                     user's own editor or it fails.
  *
- * Derived from NODE_ENV so a production build is multi-tenant by default and
- * nobody has to remember a flag in order to be safe. The override exists so the
- * behaviour can be exercised in development, where it is otherwise untestable:
- * every guard it controls is invisible until something is deployed.
+ * Desktop is decided first (see isDesktopBuild), then the NODE_ENV split so a
+ * server production build is multi-tenant by default and nobody has to remember
+ * a flag in order to be safe. The override exists so the behaviour can be
+ * exercised in development, where it is otherwise untestable: every guard it
+ * controls is invisible until something is deployed.
  */
 export function isMultiTenantBridge(): boolean {
+  if (isDesktopBuild()) return false;
   if (process.env.NODE_ENV === "production") return true;
   return process.env.OMNIROUTE_BRIDGE_MULTI_TENANT === "true";
 }

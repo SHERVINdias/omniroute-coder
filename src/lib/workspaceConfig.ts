@@ -3,6 +3,8 @@ import path from "path";
 import os from "os";
 import { execSync } from "child_process";
 
+import { stateRoot } from "@/lib/stateRoot";
+
 export interface DiscoveredProject {
   name: string;
   path: string;
@@ -16,10 +18,14 @@ export interface WorkspaceConfig {
 const CONFIG_FILENAME = ".omniroute-config.json";
 
 /**
- * Returns the absolute path to the local configuration file in process.cwd().
+ * Returns the absolute path to the local configuration file, in the writable
+ * state root. On a server or a laptop that is process.cwd(); on the packaged
+ * desktop app it is Electron's userData folder, because the install directory
+ * is not reliably writable (Program Files) or is wiped by the updater
+ * (%LOCALAPPDATA%\Programs). See stateRoot().
  */
 export function getConfigFilePath(): string {
-  return path.join(process.cwd(), CONFIG_FILENAME);
+  return path.join(stateRoot(), CONFIG_FILENAME);
 }
 
 /**

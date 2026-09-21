@@ -165,6 +165,39 @@ function migrate(database: Database.Database): void {
       updatedAt INTEGER NOT NULL
     );
 
+    /* Desktop installs, recorded by the licence server (OMNIROUTE_ROLE=licence).
+     * A random per-install UUID the app generates on first run, tied to the
+     * account that activated it, with a last-seen timestamp and the version it
+     * last reported. This is the "this account is running on N machines" signal
+     * — it deliberately learns nothing ABOUT any machine (no fingerprint), only
+     * that a distinct install checked in. On the desktop app's own database this
+     * table simply stays empty. */
+    CREATE TABLE IF NOT EXISTS installs (
+      installId TEXT PRIMARY KEY,
+      licenceKey TEXT,
+      userId TEXT,
+      firstSeen INTEGER NOT NULL,
+      lastSeen INTEGER NOT NULL,
+      appVersion TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_installs_user ON installs(userId);
+    CREATE INDEX IF NOT EXISTS idx_installs_key ON installs(licenceKey);
+
+    /* Desktop licence keys. Each tester gets one key string; the desktop app
+     * sends it (with its install UUID) to /api/licence/check on launch. The
+     * revoked column is the cut-off switch: flip it and the app refuses to run
+     * within moments. The label column is a human note (e.g. a tester name) so
+     * the admin panel is readable. On a non-licence deployment this table
+     * simply stays empty. */
+    CREATE TABLE IF NOT EXISTS licence_keys (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL DEFAULT '',
+      revoked INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL,
+      revokedAt INTEGER,
+      lastSeen INTEGER
+    );
+
     /* A UPI payment is a bank-to-bank transfer that never touches this server,
      * so there is no callback to trust. The order row is the reconciliation
      * record: the server fixes an amount that is unique among open orders, the

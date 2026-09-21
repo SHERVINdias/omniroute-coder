@@ -1,0 +1,16 @@
+{
+  "name": "omniroute-desktop-spike",
+  "version": "0.0.0",
+  "private": true,
+  "description": "THROWAWAY feasibility spike — does the standalone Next server boot inside Electron on Windows? Delete this folder once it has answered.",
+  "main": "main.js",
+  "scripts": {
+    "prepare-standalone": "node prepare.mjs",
+    "start": "electron .",
+    "spike": "npm run prepare-standalone && npm start"
+  },
+  "_comment_no_rebuild": "There is deliberately no `rebuild` script. better-sqlite3 13.0.3 is a Node-API addon (package.json: gypfile false, no `bindings`, no `prebuild-install`, no install script) and ships one runtime-agnostic binary per platform in prebuilds/. Node-API is ABI-stable across Node AND Electron, so there is nothing to rebuild. @electron/rebuild 3.7.2 misdetects this: its prebuildify check expects prebuilds/win32-x64/ as a DIRECTORY, v13 ships prebuilds/win32-x64.node as a FILE, so all three of its prebuilt-module detectors miss and it falls through to compiling from source — which is the only reason it demanded Visual Studio and a Windows SDK.",
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

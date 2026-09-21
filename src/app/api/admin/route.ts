@@ -54,6 +54,13 @@ import {
   listBootstrapAdmins,
   type UserRole,
 } from "@/lib/emailAuth";
+import {
+  generateLicenceKey,
+  revokeLicenceKey,
+  reinstateLicenceKey,
+  listLicenceKeys,
+  listInstalls,
+} from "@/lib/licenceAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,6 +105,16 @@ export async function GET(request: NextRequest) {
 
       case "users":
         return NextResponse.json({ success: true, users: getAllUsers() });
+
+      /* Desktop licences: every key (with revoked state) and every install that
+       * has checked in. From the licence server's tables; empty on a non-licence
+       * deployment. */
+      case "licences":
+        return NextResponse.json({
+          success: true,
+          keys: listLicenceKeys(),
+          installs: listInstalls(),
+        });
 
       case "settings": {
         const settings = getPaymentSettings();
@@ -439,6 +456,54 @@ export async function POST(request: NextRequest) {
           success: true,
           users: getAllUsers(),
           message: "Subscription revoked; the account is back on FREE.",
+        });
+      }
+
+      /* ---------------------------------------------------------------
+       * Desktop licence keys — mint one per tester, and cut a tester off.
+       *
+       * Distinct from revoke-subscription (which only changes a tier):
+       * revoke-licence-key stops the desktop app from RUNNING for whoever holds
+       * that key. The next licence check returns a signed active:false blob, so
+       * the block bites within the app's refresh window (launch + every 12h).
+       * -------------------------------------------------------------- */
+      case "generate-licence-key": {
+        const row = generateLicenceKey(str("label"));
+        return NextResponse.json({
+          success: true,
+          licenceKey: row,
+          keys: listLicenceKeys(),
+          message: `Licence key ${row.key} created. Send it to your tester.`,
+        });
+      }
+
+      case "revoke-licence-key": {
+        const key = str("key");
+        if (!key) {
+          return NextResponse.json({ error: "Pass the key string." }, { status: 400 });
+        }
+        const done = revokeLicenceKey(key);
+        return NextResponse.json({
+          success: done,
+          keys: listLicenceKeys(),
+          message: done
+            ? "Key revoked. That tester's desktop app will refuse to run."
+            : `No key matching ${key} was found.`,
+        });
+      }
+
+      case "reinstate-licence-key": {
+        const key = str("key");
+        if (!key) {
+          return NextResponse.json({ error: "Pass the key string." }, { status: 400 });
+        }
+        const done = reinstateLicenceKey(key);
+        return NextResponse.json({
+          success: done,
+          keys: listLicenceKeys(),
+          message: done
+            ? "Key reinstated. That tester can run the app again."
+            : `No key matching ${key} was found.`,
         });
       }
 

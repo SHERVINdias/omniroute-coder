@@ -1,0 +1,36 @@
+{
+  "_comment": "Single source of truth for the licence-server role (OMNIROUTE_ROLE=licence). middleware.ts allows ONLY these /api prefixes and 403s everything else; scripts/check-licence-routes.mjs enumerates every route on disk and fails the build if one is neither allowed here nor listed appOnly below. Editing this list is the deliberate act of widening the licence server's surface.",
+  "allowedApiPrefixes": [
+    "auth",
+    "admin",
+    "subscription",
+    "credits",
+    "health",
+    "licence"
+  ],
+  "appOnly": [
+    "agent/tasks",
+    "backups",
+    "backups/restore",
+    "chat",
+    "chat/generate-document",
+    "chats",
+    "chats/[id]",
+    "credentials",
+    "credentials/test",
+    "extension/status",
+    "extension/token",
+    "external-chat",
+    "external-models",
+    "models",
+    "ollama/control",
+    "omniroute/debug",
+    "pdf/generate",
+    "production-agent",
+    "settings/file-exclusions",
+    "settings/reference-project",
+    "skills",
+    "skills/[id]",
+    "workspace"
+  ]
+}

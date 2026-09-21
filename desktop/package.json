@@ -1,0 +1,22 @@
+{
+  "name": "omniroute-coder-desktop",
+  "productName": "OmniRoute Coder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows desktop build of OmniRoute Coder (Electron wrapping the standalone Next server).",
+  "main": "main.js",
+  "author": "OmniRoute",
+  "scripts": {
+    "prepare-payload": "node prepare.mjs",
+    "start": "electron .",
+    "dist": "npm run prepare-payload && electron-builder --win --config electron-builder.yml"
+  },
+  "_comment_asar": "asar is disabled (see electron-builder.yml). The app spawns payload/.next/standalone/server.js as a child process by path and loads better-sqlite3's .node from disk; both must be real files, not entries inside an asar archive. For a 10-person beta the tradeoff (larger, readable source) is acceptable and removes a whole class of path bugs.",
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

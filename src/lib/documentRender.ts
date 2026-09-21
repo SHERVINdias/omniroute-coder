@@ -27,6 +27,8 @@
 import { marked } from "marked";
 import puppeteer, { type Browser } from "puppeteer";
 
+import { browserLaunchOptions } from "@/lib/browserLaunch";
+
 /* -------------------------------------------------------------------------
  * Browser lifecycle
  * ---------------------------------------------------------------------- */
@@ -88,15 +90,11 @@ async function getBrowser(): Promise<Browser> {
     }
   }
 
-  const launched = puppeteer.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
-  });
+  /* Launch options come from browserLaunch.ts: on the desktop build it points
+   * at the machine's Microsoft Edge, because the packaged app has no bundled
+   * Chromium. On a server / in dev it returns no executablePath and puppeteer
+   * uses its own downloaded browser, exactly as before. */
+  const launched = puppeteer.launch(browserLaunchOptions());
 
   /* Publish synchronously — before any await — so a concurrent caller sees this
    * launch rather than starting its own. Clear the slot if it rejects, so one

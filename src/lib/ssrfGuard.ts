@@ -33,6 +33,8 @@
 import dns from "dns/promises";
 import net from "net";
 
+import { isDesktopBuild } from "@/lib/deploymentMode";
+
 export interface GuardResult {
   allowed: boolean;
   reason: string;
@@ -57,6 +59,22 @@ export function privateGatewayAllowed(): boolean {
     .toLowerCase();
   if (raw === "true" || raw === "1" || raw === "yes") return true;
   if (raw === "false" || raw === "0" || raw === "no") return false;
+
+  /* The desktop app may reach loopback, and this is the whole reason the local
+   * gateway works there when it could not on AWS. On a hosted instance the
+   * server IS the fetcher, so `http://localhost:20128/v1` means "the box
+   * talking to its own loopback" and the refusal is correct and unfixable. On
+   * the desktop the server and the gateway are the same machine, so localhost
+   * genuinely reaches the user's own gateway.
+   *
+   * This is gated by the two-factor desktop signal — NOT by the env override
+   * above, which stays the SSRF primitive it is and stays off everywhere. Safe
+   * here because a desktop server only ever fetches URLs the local user typed
+   * for themselves: the SSRF threat model ("a signed-in stranger makes the
+   * operator's server hit its own metadata endpoint") has no stranger and no
+   * shared operator on a single-user desktop. */
+  if (isDesktopBuild()) return true;
+
   return process.env.NODE_ENV !== "production";
 }
 

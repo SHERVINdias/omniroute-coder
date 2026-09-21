@@ -35,7 +35,11 @@
  * with no bridge still fails closed, which is the case the rule was written for.
  */
 
-import { isBridgeEnabled, isMultiTenantBridge } from "@/lib/deploymentMode";
+import {
+  isBridgeEnabled,
+  isDesktopBuild,
+  isMultiTenantBridge,
+} from "@/lib/deploymentMode";
 
 export function fileToolsEnabled(): boolean {
   const raw = (process.env.OMNIROUTE_ENABLE_FILE_TOOLS ?? "")
@@ -46,6 +50,16 @@ export function fileToolsEnabled(): boolean {
   if (raw === "false" || raw === "0" || raw === "no") return false;
 
   if (process.env.NODE_ENV !== "production") return true;
+
+  /* Desktop is a production build, but the disk belongs to the one person
+   * using it, so the tools work directly — with or without a paired editor.
+   * Without this branch the packaged app would fall through to the server rule
+   * below and demand the user pair the VS Code extension before it could edit a
+   * single file on their own laptop, which is nonsense on a desktop. The bridge
+   * remains an optional enhancement (live diffs in the editor), never a
+   * precondition for file work. */
+  if (isDesktopBuild()) return true;
+
   return isBridgeEnabled();
 }
 
