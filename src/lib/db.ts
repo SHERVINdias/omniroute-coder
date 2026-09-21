@@ -181,7 +181,6 @@ function migrate(database: Database.Database): void {
       appVersion TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_installs_user ON installs(userId);
-    CREATE INDEX IF NOT EXISTS idx_installs_key ON installs(licenceKey);
 
     /* Desktop licence keys. Each tester gets one key string; the desktop app
      * sends it (with its install UUID) to /api/licence/check on launch. The
@@ -286,6 +285,16 @@ function migrate(database: Database.Database): void {
   addColumnIfMissing(database, "messages", "metadata", "TEXT");
   addColumnIfMissing(database, "chats", "model", "TEXT");
   addColumnIfMissing(database, "chats", "mode", "TEXT");
+
+  /* The installs table gained a licenceKey column when the desktop licence
+   * moved to the key model. A database created between then and now has the
+   * table without that column, so add it before the index that needs it — a
+   * CREATE INDEX inside the schema block above would throw "no such column" on
+   * exactly those databases. */
+  addColumnIfMissing(database, "installs", "licenceKey", "TEXT");
+  database.exec(
+    "CREATE INDEX IF NOT EXISTS idx_installs_key ON installs(licenceKey)",
+  );
 
   /* Ownership. Chats used to be a single global list with no user column at
    * all, so on any multi-user deployment every account would see, rename and
