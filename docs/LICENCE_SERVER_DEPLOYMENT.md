@@ -94,7 +94,12 @@ This lets the server email sign-in codes to your testers.
 3. **Region:** pick the one closest to your testers (e.g. Mumbai `ap-south-1`).
 4. **Platform:** Linux/Unix. **Blueprint:** choose **OS Only → Ubuntu 22.04 LTS**.
    (Not the "Node.js" blueprint — you'll install Docker yourself.)
-5. **Instance plan:** the **$5/month** one (1 GB RAM). Enough for 10 testers.
+5. **Instance plan:** pick **$12/month (2 GB RAM)**. Do NOT pick the $5 (512 MB)
+   or $7 (1 GB) — the app's `next build` runs on this box in Phase 9 and needs
+   the memory, or it fails with an out-of-memory error. (If you must use the
+   $7/1 GB plan to save credit, it works only with a swap file — ask me and I'll
+   add that step.) At runtime, serving 10 testers uses very little; the RAM is
+   for the build.
 6. Name it `omniroute-licence`. Click **Create instance**. Wait ~2 min until it
    says **Running**.
 7. Click the instance → **Networking** tab → under **IPv4 Firewall**, click
@@ -140,6 +145,20 @@ This lets the server email sign-in codes to your testers.
    ```
 3. Log the group change in: type `exit`, then click **Connect using SSH** again.
    Test: `docker --version` should print a version.
+
+4. **Add a swap file — REQUIRED on the $7 / 1 GB plan** (skip on 2 GB+). This
+   gives the memory-hungry `next build` in Phase 9 room to finish instead of
+   being killed. It's a standard, safe overflow file on disk:
+   ```bash
+   sudo fallocate -l 4G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   free -h
+   ```
+   The `free -h` line should now show ~4 GB of Swap. The `/etc/fstab` line makes
+   it survive a reboot.
 
 ---
 

@@ -112,6 +112,10 @@ async function startServer() {
      * own binary — so this cannot be faked onto a plain-Node server. */
     OMNIROUTE_DESKTOP: "true",
 
+    /* The cloud licence server, so the in-app refresh route (src/lib/licence.ts)
+     * reaches the same place desktop/licence.js does. */
+    OMNIROUTE_LICENCE_URL: "https://omniroute-licence.duckdns.org",
+
     /* All writable state — chat.db, the two secrets, the workspace choice,
      * generated documents — goes here, where the app is allowed to write and
      * the updater does not wipe it. */

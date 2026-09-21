@@ -36,7 +36,7 @@ MCowBQYDK2VwAyEAQA/MjQku5yNd8Z7DJPi3CV1LZbITjlriWbabkRrc8To=
  * launch). Trailing slashes trimmed. */
 const LICENCE_URL = (
   (process.env.OMNIROUTE_LICENCE_URL && process.env.OMNIROUTE_LICENCE_URL.trim()) ||
-  "https://licence.example.com"
+  "https://omniroute-licence.duckdns.org"
 ).replace(/\/+$/, "");
 
 /* --------------------------------------------------------------- canonical -- */
