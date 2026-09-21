@@ -38,15 +38,45 @@ const SERVER_WRAPPER = path.join(__dirname, "server-wrapper.js");
  * there by desktop/prepare.mjs, minus the database and secrets), and under the
  * repo's own .next/standalone when running unpackaged against a dev build. Try
  * the payload first, fall back to the repo. */
-const PAYLOAD_STANDALONE = path.join(__dirname, "payload", ".next", "standalone");
+/* The standalone server is bundled as extraResources (see electron-builder.yml),
+ * which copies it verbatim to <install>/resources/payload — NOT under files:,
+ * because electron-builder prunes node_modules inside files: and would strip the
+ * server's own dependencies, making the packaged server exit 1 on a require it
+ * can no longer resolve. Resolve the packaged location first (process.resourcesPath),
+ * then the dev payload (desktop/payload), then the repo build. */
+const PACKAGED_PAYLOAD = path.join(process.resourcesPath, "payload", ".next", "standalone");
+const DEV_PAYLOAD = path.join(__dirname, "payload", ".next", "standalone");
 const REPO_STANDALONE = path.join(__dirname, "..", ".next", "standalone");
-const STANDALONE = fs.existsSync(path.join(PAYLOAD_STANDALONE, "server.js"))
-  ? PAYLOAD_STANDALONE
-  : REPO_STANDALONE;
+function firstStandaloneWithServer(...dirs) {
+  for (const dir of dirs) {
+    try {
+      if (fs.existsSync(path.join(dir, "server.js"))) return dir;
+    } catch {
+      /* unreadable — try the next */
+    }
+  }
+  return dirs[dirs.length - 1];
+}
+const STANDALONE = firstStandaloneWithServer(
+  app.isPackaged ? PACKAGED_PAYLOAD : DEV_PAYLOAD,
+  REPO_STANDALONE,
+);
 const SERVER_ENTRY = path.join(STANDALONE, "server.js");
 
 const BRIDGE_PREFERRED_PORT = 20129;
 const BOOT_TIMEOUT_MS = 90_000;
+
+/* Licence enforcement master switch.
+ *
+ * false: the app runs with NO key prompt and NO revoke — anyone who installs the
+ *        .exe can use it. Auto-updates and everything else are unaffected.
+ * true:  the tester must enter a valid key at first launch, and a revoked key
+ *        stops the app (the full licence-key model).
+ *
+ * Set to true and rebuild (npm run dist) to re-enable revocation later — the
+ * cloud licence server, keys, and all the wiring remain in place; this is the
+ * only line that has to change. */
+const LICENCE_ENABLED = false;
 
 /* userData is forced under %LOCALAPPDATA% (Local), NOT the default %APPDATA%
  * (Roaming): a roaming profile on a managed machine would try to sync a chat
@@ -134,9 +164,36 @@ async function startServer() {
     OMNIROUTE_SERVER_ENTRY: SERVER_ENTRY,
   };
 
+  /* A log file in userData so a packaged build (which has no visible console)
+   * still records why the server started or crashed. This is the file to read
+   * when the app shows "server stopped unexpectedly". */
+  const logPath = path.join(userData, "server.log");
+  const log = (line) => {
+    try {
+      fs.appendFileSync(logPath, line);
+    } catch {
+      /* best effort */
+    }
+  };
+  try {
+    fs.mkdirSync(userData, { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      `\n===== launch ${new Date().toISOString()} =====\n` +
+        `execPath: ${process.execPath}\n` +
+        `wrapper:  ${SERVER_WRAPPER}\n` +
+        `entry:    ${SERVER_ENTRY}\n` +
+        `cwd:      ${STANDALONE}\n` +
+        `port:     ${port}  bridge: ${bridgePort}\n\n`,
+    );
+  } catch {
+    /* best effort */
+  }
+
   console.log(`[desktop] userData: ${userData}`);
   console.log(`[desktop] db:       ${env.OMNIROUTE_DB_PATH}`);
   console.log(`[desktop] port:     ${port}  bridge: ${bridgePort}`);
+  console.log(`[desktop] log:      ${logPath}`);
 
   serverProcess = spawn(process.execPath, [SERVER_WRAPPER], {
     cwd: STANDALONE,
@@ -144,12 +201,22 @@ async function startServer() {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  serverProcess.stdout.on("data", (d) => process.stdout.write(`[server] ${d}`));
-  serverProcess.stderr.on("data", (d) => process.stderr.write(`[server] ${d}`));
+  serverProcess.on("error", (err) => {
+    log(`[spawn error] ${err && err.stack ? err.stack : err}\n`);
+  });
+  serverProcess.stdout.on("data", (d) => {
+    process.stdout.write(`[server] ${d}`);
+    log(`[out] ${d}`);
+  });
+  serverProcess.stderr.on("data", (d) => {
+    process.stderr.write(`[server] ${d}`);
+    log(`[err] ${d}`);
+  });
 
   serverProcess.on("exit", (code, signal) => {
-    /* 143 == clean SIGTERM shutdown. Anything else while we are not quitting is
-     * a real crash and the user should see it, not a blank window. */
+    log(`[exit] code=${code} signal=${signal}\n`);
+    /* 143 == clean SIGTERM shutdown. Anything else while we are not shutting
+     * down is a real crash and the user should see it, not a blank window. */
     if (shuttingDown || code === 143) return;
     showServerCrashed(code, signal);
   });
@@ -371,6 +438,9 @@ function promptForKey(userDataDir) {
  * grace with no way forward).
  */
 async function ensureLicensed(userDataDir) {
+  /* Master switch off: no key, no check, just run. */
+  if (!LICENCE_ENABLED) return { ok: true };
+
   /* Best-effort online re-check first, so a revocation on the server is seen at
    * launch. Offline this falls back to the cached grace verdict. */
   let verdict = await licence.refreshFromCloud(userDataDir);
@@ -440,6 +510,7 @@ async function main() {
  * server says revoked/expired, replace the window with the refusal screen.
  */
 function startLicenceWatch() {
+  if (!LICENCE_ENABLED) return;
   const TWELVE_HOURS = 12 * 60 * 60 * 1000;
   setInterval(async () => {
     if (shuttingDown) return;

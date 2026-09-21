@@ -32,6 +32,10 @@ directories:
 # The payload/ tree is assembled by prepare.mjs before this runs. Everything the
 # app needs at runtime is under desktop/, so the file set is simply "this folder"
 # minus the build tooling and the output.
+# Only the Electron wrapper's own files go through `files`. The server payload
+# is bundled via extraResources below, NOT here — electron-builder prunes
+# node_modules inside `files`, which would strip the standalone server's own
+# dependencies and make it exit 1 at launch on a require it can't resolve.
 files:
   - "main.js"
   - "server-wrapper.js"
@@ -39,20 +43,18 @@ files:
   - "secrets.js"
   - "licence.js"
   - "preload.js"
-  - "payload/**/*"
   - "!dist/**/*"
   - "!prepare.mjs"
   - "!electron-builder.yml"
-  # Belt-and-braces: even if one slipped into the payload, never package a
-  # database or a secret. prepare.mjs already asserts this and fails the build;
-  # these globs are the second line.
-  - "!**/chat.db"
-  - "!**/chat.db-*"
-  - "!**/chat.db.backup-*"
-  - "!**/.env"
-  - "!**/.env.*"
-  - "!**/providers.json"
-  - "!**/user_local.env"
+
+# The standalone Next server, copied verbatim to <install>/resources/payload.
+# extraResources is not subject to node_modules pruning, so the server keeps its
+# full dependency tree and its better-sqlite3 native binary. prepare.mjs has
+# already scrubbed every secret/database from payload/ and asserted it is clean,
+# so nothing sensitive is copied here.
+extraResources:
+  - from: "payload"
+    to: "payload"
 
 win:
   target:
