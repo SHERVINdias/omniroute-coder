@@ -589,10 +589,15 @@ async function* streamCompletion(
     upstreamModel: upstreamModelFromHeaders(res.headers),
   };
 
+  console.log(
+    `[streamCompletion] ${label} streaming: status ${res.status}, content-type ${res.headers.get("content-type")}`,
+  );
+
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
+  let firstChunkLogged = false;
   const toolAcc: Record<number, { id?: string; name?: string; args: string }> =
     {};
   let finishReason: string | null = null;
@@ -602,6 +607,13 @@ async function* streamCompletion(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
+
+    if (!firstChunkLogged && buffer.trim().length > 0) {
+      firstChunkLogged = true;
+      console.log(
+        `[streamCompletion] ${label} first raw chunk (up to 400 chars): ${buffer.slice(0, 400)}`,
+      );
+    }
 
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
@@ -665,6 +677,10 @@ async function* streamCompletion(
       type: "function",
       function: { name: t.name as string, arguments: t.args || "{}" },
     }));
+
+  console.log(
+    `[streamCompletion] ${label} finished: text length=${text.length}, toolCalls=${toolCalls.length}, finishReason=${finishReason}`,
+  );
 
   yield { kind: "result", text, toolCalls, finishReason, servedModel };
 }

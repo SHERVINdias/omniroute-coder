@@ -352,8 +352,15 @@ export async function fetchGatewayModels(creds?: GatewayCreds): Promise<{
     /* Azure and other deployment-scoped providers have no catalogue endpoint.
      * That is not an error — the user names the deployment themselves. */
     diagnostics.error = `${profile.label} does not publish a model list; enter the model name manually in Settings.`;
+    /* Merge, in priority order: the user's own Model IDs, the profile's built-in
+     * defaults (so providers like Agent Router work out of the box), and any
+     * env-provided extras. Set dedupes while preserving first-seen order. */
     const manual = Array.from(
-      new Set([...(resolved.modelIds ?? []), ...EXTRA_MODELS]),
+      new Set([
+        ...(resolved.modelIds ?? []),
+        ...(profile.defaultModels ?? []),
+        ...EXTRA_MODELS,
+      ]),
     );
     return { ids: manual, diagnostics };
   }

@@ -61,6 +61,13 @@ export interface ProviderProfile {
   baseUrlPlaceholder: string;
   /** Optional hint about what to put in the model field. */
   modelHint?: string;
+  /**
+   * Models shown by default for this provider, even when it publishes no model
+   * list and the user has typed nothing. Merged with the user's own Model IDs.
+   * Lets a provider like Agent Router (no /models endpoint) work out of the box
+   * for every user without each one hand-entering the model names.
+   */
+  defaultModels?: string[];
   /** Shown in the settings panel to steer the user toward the right URL. */
   notes?: string;
   /** Which API protocol the provider expects: OpenAI or Anthropic Messages. */
@@ -96,7 +103,16 @@ export const PROVIDER_PROFILES: ProviderProfile[] = [
     apiFlavor: "anthropic-messages",
     baseUrlPlaceholder: "https://agentrouter.org",
     modelHint: "claude-opus-4-8",
-    notes: "Uses Anthropic Messages API format. Manual model entry required: claude-opus-4-6, claude-opus-4-7, claude-opus-4-8, gpt-5.5, glm-5.2.",
+    /* Shown out of the box for every user, since Agent Router has no model-list
+     * endpoint. Users can still add or override in the Model IDs field. */
+    defaultModels: [
+      "claude-opus-4-8",
+      "claude-opus-5",
+      "deepseek-v4-flash",
+      "gpt-5.6-sol",
+      "gpt-6-astra",
+    ],
+    notes: "Uses Anthropic Messages API format. Models are pre-filled; add more in the Model IDs field if needed.",
   },
   {
     id: "openai",

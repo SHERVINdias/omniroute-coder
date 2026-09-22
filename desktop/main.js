@@ -22,8 +22,9 @@
 
 "use strict";
 
-const { app, BrowserWindow, shell, dialog, Menu } = require("electron");
+const { app, BrowserWindow, shell, dialog, Menu, net } = require("electron");
 const { spawn } = require("child_process");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
@@ -92,6 +93,79 @@ let serverProcess = null;
 let mainWindow = null;
 let bootWindow = null;
 let shuttingDown = false;
+let browserProxyPort = null;
+
+/* ------------------------------------------------------- browser proxy -- */
+
+/**
+ * A tiny loopback proxy that forwards requests through Electron's `net`
+ * (Chromium's network stack). Chromium carries a real browser TLS fingerprint,
+ * so providers behind Cloudflare bot protection that block Node's fetch — like
+ * justwoker.icu — let these requests through. The server child is told this
+ * proxy's URL (OMNIROUTE_BROWSER_PROXY) and, in src/lib/upstreamRequest.ts, only
+ * retries through it when a provider actually returns a Cloudflare block. So
+ * working providers never touch it.
+ *
+ * The real target rides in the x-omni-proxy-target header. Method, headers and
+ * body are forwarded; the response (including SSE streams) is piped straight
+ * back. content-encoding/length are dropped because Electron's net already
+ * decodes the body.
+ */
+function startBrowserProxy() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const target = req.headers["x-omni-proxy-target"];
+      if (!target || typeof target !== "string") {
+        res.writeHead(400);
+        res.end("missing target");
+        return;
+      }
+      const chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        const body = Buffer.concat(chunks);
+        let preq;
+        try {
+          preq = net.request({ method: req.method || "GET", url: target, redirect: "follow" });
+        } catch {
+          res.writeHead(502);
+          res.end("bad target");
+          return;
+        }
+        const SKIP = new Set([
+          "host", "x-omni-proxy-target", "content-length", "connection", "accept-encoding",
+        ]);
+        for (const [k, v] of Object.entries(req.headers)) {
+          if (SKIP.has(k.toLowerCase())) continue;
+          try { preq.setHeader(k, Array.isArray(v) ? v.join(",") : v); } catch { /* skip bad header */ }
+        }
+        preq.on("response", (presp) => {
+          const outHeaders = {};
+          for (const [k, v] of Object.entries(presp.headers || {})) {
+            const lk = k.toLowerCase();
+            if (lk === "content-encoding" || lk === "content-length" || lk === "transfer-encoding") continue;
+            outHeaders[k] = v;
+          }
+          res.writeHead(presp.statusCode || 502, outHeaders);
+          presp.on("data", (d) => res.write(d));
+          presp.on("end", () => res.end());
+          presp.on("error", () => { try { res.end(); } catch { /* already ended */ } });
+        });
+        preq.on("error", (e) => {
+          try { res.writeHead(502); res.end(String(e && e.message ? e.message : e)); } catch { /* already sent */ }
+        });
+        if (body.length) preq.write(body);
+        preq.end();
+      });
+    });
+    server.on("error", () => resolve(null));
+    server.listen(0, "127.0.0.1", () => {
+      browserProxyPort = server.address().port;
+      console.log(`[desktop] browser proxy (Chromium) on 127.0.0.1:${browserProxyPort}`);
+      resolve(browserProxyPort);
+    });
+  });
+}
 
 /* --------------------------------------------------------------- utilities -- */
 
@@ -146,6 +220,14 @@ async function startServer() {
      * reaches the same place desktop/licence.js does. */
     OMNIROUTE_LICENCE_URL: "https://omniroute-licence.duckdns.org",
 
+    /* The Chromium fallback proxy for Cloudflare-blocked providers (justwoker,
+     * etc.). Only set on desktop; upstreamRequest.ts uses it solely as a retry
+     * when a provider returns a Cloudflare block, so working providers are
+     * untouched. */
+    ...(browserProxyPort
+      ? { OMNIROUTE_BROWSER_PROXY: `http://127.0.0.1:${browserProxyPort}` }
+      : {}),
+
     /* All writable state — chat.db, the two secrets, the workspace choice,
      * generated documents — goes here, where the app is allowed to write and
      * the updater does not wipe it. */
@@ -155,8 +237,11 @@ async function startServer() {
     AUTH_SECRET: secrets.AUTH_SECRET,
     CREDENTIALS_SECRET: secrets.CREDENTIALS_SECRET,
 
-    /* The editor bridge is an optional enhancement on desktop (live diffs), not
-     * a precondition for file work. Off by default; the user can turn it on. */
+    /* The editor bridge — an optional enhancement on desktop (live diffs in VS
+     * Code). Enabled so the extension can connect; it binds 127.0.0.1 only and
+     * is auth-gated by the pairing token, so on a single-user machine it exposes
+     * nothing. File tools work with or without it. */
+    OMNIROUTE_BRIDGE_ENABLE: "true",
     OMNIROUTE_BRIDGE_HOST: "127.0.0.1",
     OMNIROUTE_BRIDGE_PORT: String(bridgePort),
 
@@ -476,6 +561,11 @@ async function main() {
     showLicenceRefusal(licensed.reason);
     return;
   }
+
+  /* Start the Chromium fallback proxy before the server, so its port is in the
+   * server's environment. Best-effort: if it fails, the app still runs; only
+   * Cloudflare-blocked providers would be unavailable. */
+  await startBrowserProxy();
 
   if (!fs.existsSync(SERVER_ENTRY)) {
     showLicenceRefusal(

@@ -191,6 +191,66 @@ function headerOverridesFor(providerId: string): Record<string, string> {
  * Anthropic-flavored providers (AgentRouter) use the Messages API instead of
  * the OpenAI chat completions format.
  */
+/**
+ * Fetch, with a Chromium fallback for Cloudflare-blocked providers.
+ *
+ * Some gateways (e.g. justwoker.icu) sit behind Cloudflare bot protection that
+ * blocks server-side clients by TLS fingerprint but lets real browsers through.
+ * On the desktop build, the Electron main process runs a tiny proxy that makes
+ * the request through Chromium's own network stack — a genuine browser
+ * fingerprint that passes Cloudflare — and its URL is handed to the server in
+ * OMNIROUTE_BROWSER_PROXY. When a normal fetch comes back as a Cloudflare block
+ * AND that proxy exists, we retry through it.
+ *
+ * SAFETY — why this cannot affect working providers:
+ *   - A SUCCESSFUL response (res.ok) is returned immediately, untouched and
+ *     unbuffered, so streaming and every provider that works today are
+ *     unaffected.
+ *   - Only a 403/503/429 whose body actually looks like a Cloudflare block
+ *     triggers the fallback. A normal 401/400/403 from a real provider is
+ *     returned as-is.
+ *   - Off the desktop build OMNIROUTE_BROWSER_PROXY is unset, so this is a plain
+ *     fetch everywhere else.
+ */
+async function upstreamFetch(url: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  if (res.ok) return res;
+
+  const proxy = process.env.OMNIROUTE_BROWSER_PROXY?.trim();
+  if (!proxy) return res;
+  if (res.status !== 403 && res.status !== 503 && res.status !== 429) return res;
+
+  let sniff = "";
+  try {
+    sniff = await res.clone().text();
+  } catch {
+    return res;
+  }
+  if (!/cloudflare|attention required|cf-ray|cf-error|__cf|cf-mitigated/i.test(sniff)) {
+    return res;
+  }
+
+  console.log(
+    `[upstreamRequest] Cloudflare block on ${url} — retrying through the browser proxy`,
+  );
+
+  const headers: Record<string, string> = { "x-omni-proxy-target": url };
+  const src = init.headers as Record<string, string> | undefined;
+  if (src) for (const [k, v] of Object.entries(src)) headers[k] = v;
+
+  try {
+    return await fetch(proxy, {
+      method: (init.method as string) || "GET",
+      headers,
+      body: init.body as BodyInit | undefined,
+      signal: init.signal as AbortSignal | undefined,
+    });
+  } catch (err) {
+    console.error("[upstreamRequest] browser-proxy fallback failed:", err);
+    return res;
+  }
+}
+
 export async function postChatCompletion(
   target: UpstreamTarget,
   payload: ChatCompletionPayload,
@@ -212,7 +272,7 @@ export async function postChatCompletion(
     });
     const body = openAiToAnthropicBody(payload as Record<string, unknown>);
 
-    return fetch(url, {
+    return upstreamFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -241,7 +301,7 @@ export async function postChatCompletion(
      * object writes every user's key to the server log in plaintext — and on
      * a deployed box those logs go to journald / CloudWatch and are retained.
      * Log the URL and status only; both are useful and neither is a secret. */
-    const response = await fetch(url, {
+    const response = await upstreamFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -297,7 +357,7 @@ export async function getModelList(
     options.signal ??
     (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined);
 
-  return fetch(url, {
+  return upstreamFetch(url, {
     method: "GET",
     headers,
     signal,
