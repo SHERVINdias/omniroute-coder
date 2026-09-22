@@ -132,13 +132,48 @@ function startBrowserProxy() {
           res.end("bad target");
           return;
         }
-        const SKIP = new Set([
-          "host", "x-omni-proxy-target", "content-length", "connection", "accept-encoding",
+        /* Chromium's net stack is far stricter than Node's fetch: it rejects the
+         * whole request with ERR_INVALID_ARGUMENT if ANY header value contains a
+         * control character (a trailing newline on a pasted API key is the
+         * classic one) — where fetch would silently tolerate it. So rather than
+         * forward every auto-header undici attaches, we forward only the ones a
+         * provider actually reads, and we sanitise each value: drop CR/LF/other
+         * control chars and trim. This is what makes justwoker (Cloudflare) work
+         * without tripping ERR_INVALID_ARGUMENT. */
+        const ALLOW = new Set([
+          "content-type",
+          "authorization",
+          "x-api-key",
+          "anthropic-version",
+          "anthropic-beta",
+          "openai-organization",
+          "openai-project",
+          "http-referer",
+          "x-title",
         ]);
+        const clean = (val) =>
+          String(Array.isArray(val) ? val.join(",") : val)
+            /* strip anything below 0x20 (CR, LF, tab, etc.) and DEL */
+            .replace(/[\x00-\x1f\x7f]/g, "")
+            .trim();
         for (const [k, v] of Object.entries(req.headers)) {
-          if (SKIP.has(k.toLowerCase())) continue;
-          try { preq.setHeader(k, Array.isArray(v) ? v.join(",") : v); } catch { /* skip bad header */ }
+          if (!ALLOW.has(k.toLowerCase())) continue;
+          const value = clean(v);
+          if (!value) continue;
+          try { preq.setHeader(k, value); } catch { /* skip header Chromium refuses */ }
         }
+        /* The point of this proxy is a real browser fingerprint, so present
+         * real-browser headers rather than undici's Node ones. Chromium supplies
+         * the TLS/JA3 fingerprint Cloudflare checks; these make the HTTP layer
+         * match. We do NOT forward the incoming user-agent (it was Node's). */
+        try {
+          preq.setHeader(
+            "user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          );
+          preq.setHeader("accept", "*/*");
+          preq.setHeader("accept-language", "en-US,en;q=0.9");
+        } catch { /* headers optional */ }
         preq.on("response", (presp) => {
           const outHeaders = {};
           for (const [k, v] of Object.entries(presp.headers || {})) {
@@ -152,7 +187,9 @@ function startBrowserProxy() {
           presp.on("error", () => { try { res.end(); } catch { /* already ended */ } });
         });
         preq.on("error", (e) => {
-          try { res.writeHead(502); res.end(String(e && e.message ? e.message : e)); } catch { /* already sent */ }
+          const msg = String(e && e.message ? e.message : e);
+          console.error(`[desktop] browser proxy error for ${target}: ${msg}`);
+          try { res.writeHead(502); res.end(msg); } catch { /* already sent */ }
         });
         if (body.length) preq.write(body);
         preq.end();
